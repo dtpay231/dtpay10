@@ -30,10 +30,25 @@
 <div id="auth-screen" class="min-h-screen flex items-center justify-center p-4">
     <div class="bg-gray-800 p-8 rounded-xl shadow-lg w-full max-w-md">
         <h1 class="text-3xl font-bold text-center text-green-400 mb-6">TRANS PAY</h1>
-        <input type="email" id="auth-email" placeholder="Email Address" class="w-full p-3 mb-4 bg-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-green-400">
-        <input type="password" id="auth-password" placeholder="Password" class="w-full p-3 mb-6 bg-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-green-400">
-        <button onclick="handleLogin()" class="w-full bg-green-500 hover:bg-green-600 font-bold py-3 rounded mb-4">Sign In</button>
-        <button onclick="handleSignup()" class="w-full bg-transparent border border-green-500 text-green-400 hover:bg-gray-700 font-bold py-3 rounded">Register Account</button>
+        
+        <!-- Login Form -->
+        <div id="login-form">
+            <h2 class="text-xl font-bold text-white mb-4 text-center">Sign In</h2>
+            <input type="email" id="login-email" placeholder="Email Address" class="w-full p-3 mb-4 bg-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-green-400">
+            <input type="password" id="login-password" placeholder="Password" class="w-full p-3 mb-6 bg-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-green-400">
+            <button onclick="handleLogin()" class="w-full bg-green-500 hover:bg-green-600 font-bold py-3 rounded mb-4">Sign In</button>
+            <p class="text-center text-gray-400 text-sm">New to Trans Pay? <button onclick="toggleAuth('register')" class="text-green-400 hover:underline">Create an account</button></p>
+        </div>
+
+        <!-- Register Form (Hidden by default) -->
+        <div id="register-form" class="hidden">
+            <h2 class="text-xl font-bold text-white mb-4 text-center">Create Account</h2>
+            <input type="email" id="register-email" placeholder="Email Address" class="w-full p-3 mb-4 bg-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-400">
+            <input type="password" id="register-password" placeholder="Create Password (min. 6 chars)" class="w-full p-3 mb-6 bg-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-400">
+            <button onclick="handleSignup()" class="w-full bg-blue-500 hover:bg-blue-600 font-bold py-3 rounded mb-4">Register Account</button>
+            <p class="text-center text-gray-400 text-sm">Already have an account? <button onclick="toggleAuth('login')" class="text-green-400 hover:underline">Sign In</button></p>
+        </div>
+
         <p id="auth-error" class="text-red-400 text-sm text-center mt-4 hidden"></p>
     </div>
 </div>
@@ -138,6 +153,17 @@
     }
 
     // --- AUTHENTICATION LOGIC ---
+    function toggleAuth(view) {
+        document.getElementById('auth-error').classList.add('hidden');
+        if (view === 'register') {
+            document.getElementById('login-form').classList.add('hidden');
+            document.getElementById('register-form').classList.remove('hidden');
+        } else {
+            document.getElementById('register-form').classList.add('hidden');
+            document.getElementById('login-form').classList.remove('hidden');
+        }
+    }
+
     client.auth.onAuthStateChange((event, session) => {
         if (session) {
             currentUser = session.user;
@@ -152,16 +178,30 @@
     });
 
     async function handleSignup() {
-        const email = document.getElementById('auth-email').value;
-        const password = document.getElementById('auth-password').value;
+        const email = document.getElementById('register-email').value;
+        const password = document.getElementById('register-password').value;
+        
+        if (!email || !password) {
+            return showAuthError("Please enter both an email and a password.");
+        }
+        
         const { error } = await client.auth.signUp({ email, password });
-        if (error) showAuthError(error.message);
-        else showAuthError("Registration successful. Please sign in.", "text-green-400");
+        if (error) {
+            showAuthError(error.message);
+        } else {
+            showAuthError("Registration successful! You can now sign in.", "text-green-400");
+            setTimeout(() => toggleAuth('login'), 1500);
+        }
     }
 
     async function handleLogin() {
-        const email = document.getElementById('auth-email').value;
-        const password = document.getElementById('auth-password').value;
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        
+        if (!email || !password) {
+            return showAuthError("Please enter both an email and a password.");
+        }
+        
         const { error } = await client.auth.signInWithPassword({ email, password });
         if (error) showAuthError(error.message);
     }
