@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRANS PAY - User Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white font-sans antialiased">
+
+<script>
+    // --- SUPABASE CONFIGURATION ---
+    const SUPABASE_URL = 'https://vzzevmcyorysbnpovewo.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_rkS5W73R3c5xP_74WO-SJg__jYq1mE3';
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    
+    let currentUser = null;
+    let activeDepositWallet = null;
+    let depositTimer = null;
+    let trxScanner = null;
+</script>
+
+<!-- AUTHENTICATION SCREEN -->
+<div id="auth-screen" class="min-h-screen flex items-center justify-center p-4">
+    <div class="bg-gray-800 p-8 rounded-xl shadow-lg w-full max-w-md">
+        <h1 class="text-3xl font-bold text-center text-green-400 mb-6">TRANS PAY</h1>
+        <input type="email" id="auth-email" placeholder="Email Address" class="w-full p-3 mb-4 bg-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-green-400">
+        <input type="password" id="auth-password" placeholder="Password" class="w-full p-3 mb-6 bg-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-green-400">
+        <button onclick="handleLogin()" class="w-full bg-green-500 hover:bg-green-600 font-bold py-3 rounded mb-4">Sign In</button>
+        <button onclick="handleSignup()" class="w-full bg-transparent border border-green-500 text-green-400 hover:bg-gray-700 font-bold py-3 rounded">Register Account</button>
+        <p id="auth-error" class="text-red-400 text-sm text-center mt-4 hidden"></p>
+    </div>
+</div>
+
+<!-- MAIN APP DASHBOARD -->
+<div id="app-screen" class="hidden min-h-screen pb-20">
+    <!-- Header -->
+    <header class="bg-gray-800 p-4 shadow flex justify-between items-center sticky top-0 z-50">
+        <h1 class="text-xl font-bold text-green-400">TRANS PAY</h1>
+        <button onclick="handleLogout()" class="text-sm text-gray-400 hover:text-white">Logout</button>
+    </header>
+
+    <!-- App Content -->
+    <main class="p-4 max-w-lg mx-auto">
+        
+        <!-- DEPOSIT TAB -->
+        <div id="tab-deposit" class="tab-content active">
+            <h2 class="text-2xl font-bold mb-4">Deposit USDT (TRC-20)</h2>
+            <div class="bg-gray-800 p-6 rounded-xl text-center">
+                <button onclick="startDeposit()" id="btn-start-deposit" class="w-full bg-green-500 hover:bg-green-600 font-bold py-3 rounded mb-4">Generate Deposit Address</button>
+                
+                <div id="deposit-ui" class="hidden">
+                    <p class="text-gray-400 mb-2">Send TRC-20 USDT to:</p>
+                    <div class="bg-white p-4 rounded-lg inline-block mb-4" id="qrcode"></div>
+                    <p id="wallet-address" class="text-xs break-all bg-gray-900 p-3 rounded text-green-300 mb-4"></p>
+                    <p class="text-yellow-400 text-sm font-bold mb-4">Time remaining: <span id="deposit-timer">30:00</span></p>
+                    <p class="text-xs text-gray-500">System is scanning Tronscan automatically...</p>
+                    <p id="deposit-status" class="text-sm text-blue-400 mt-2"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- WITHDRAW TAB -->
+        <div id="tab-withdraw" class="tab-content">
+            <h2 class="text-2xl font-bold mb-4">Withdraw (INR)</h2>
+            <div class="bg-gray-800 p-6 rounded-xl">
+                <p class="text-sm text-gray-400 mb-4">Exchange Rate: 1 USDT = ₹89.50</p>
+                <input type="number" id="withdraw-amount" placeholder="Amount in USDT" oninput="calculateINR()" class="w-full p-3 mb-4 bg-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-green-400">
+                <p class="text-green-400 font-bold mb-4">You will receive: ₹<span id="inr-amount">0.00</span></p>
+                
+                <select id="withdraw-bank" class="w-full p-3 mb-4 bg-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-green-400">
+                    <option value="">Select Saved Bank Account</option>
+                </select>
+                
+                <input type="password" id="withdraw-pin" placeholder="6-Digit Transaction PIN" class="w-full p-3 mb-6 bg-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-green-400">
+                <button onclick="requestWithdrawal()" class="w-full bg-red-500 hover:bg-red-600 font-bold py-3 rounded">Submit Withdrawal</button>
+                <p id="withdraw-msg" class="text-sm text-center mt-4"></p>
+            </div>
+        </div>
+
+        <!-- BANK MANAGER TAB -->
+        <div id="tab-bank" class="tab-content">
+            <h2 class="text-2xl font-bold mb-4">Bank Accounts</h2>
+            <div class="bg-gray-800 p-6 rounded-xl mb-4">
+                <h3 class="font-bold mb-4">Add New Bank</h3>
+                <input type="text" id="bank-holder" placeholder="Account Holder Name" class="w-full p-3 mb-3 bg-gray-700 rounded text-white focus:outline-none">
+                <input type="text" id="bank-acc" placeholder="Account Number" class="w-full p-3 mb-3 bg-gray-700 rounded text-white focus:outline-none">
+                <input type="text" id="bank-ifsc" placeholder="IFSC Code" class="w-full p-3 mb-3 bg-gray-700 rounded text-white focus:outline-none">
+                <input type="text" id="bank-name" placeholder="Bank Name" class="w-full p-3 mb-4 bg-gray-700 rounded text-white focus:outline-none">
+                <button onclick="addBank()" class="w-full bg-blue-500 hover:bg-blue-600 font-bold py-3 rounded">Save Bank Details</button>
+                <p id="bank-msg" class="text-sm text-center mt-2"></p>
+            </div>
+        </div>
+
+        <!-- ORDERS TAB -->
+        <div id="tab-orders" class="tab-content">
+            <h2 class="text-2xl font-bold mb-4">Live Orders</h2>
+            <div class="space-y-4" id="order-list">
+                <!-- Orders injected here -->
+            </div>
+        </div>
+
+        <!-- SETTINGS TAB -->
+        <div id="tab-settings" class="tab-content">
+            <h2 class="text-2xl font-bold mb-4">Security Settings</h2>
+            <div class="bg-gray-800 p-6 rounded-xl">
+                <h3 class="font-bold mb-4">Set Transaction PIN</h3>
+                <input type="password" id="set-pin" placeholder="Enter new 6-digit PIN" class="w-full p-3 mb-4 bg-gray-700 rounded text-white focus:outline-none">
+                <button onclick="setTxPin()" class="w-full bg-purple-500 hover:bg-purple-600 font-bold py-3 rounded">Update PIN</button>
+                <p id="pin-msg" class="text-sm text-center mt-2"></p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Bottom Navigation -->
+    <nav class="fixed bottom-0 w-full bg-gray-800 border-t border-gray-700 flex justify-around text-xs p-3 shadow-lg">
+        <button onclick="switchTab('deposit')" class="flex flex-col items-center text-gray-400 hover:text-green-400"><span class="text-lg">⬇️</span>Deposit</button>
+        <button onclick="switchTab('withdraw')" class="flex flex-col items-center text-gray-400 hover:text-red-400"><span class="text-lg">⬆️</span>Withdraw</button>
+        <button onclick="switchTab('bank')" class="flex flex-col items-center text-gray-400 hover:text-blue-400"><span class="text-lg">🏦</span>Bank</button>
+        <button onclick="switchTab('orders')" class="flex flex-col items-center text-gray-400 hover:text-yellow-400"><span class="text-lg">📋</span>Orders</button>
+        <button onclick="switchTab('settings')" class="flex flex-col items-center text-gray-400 hover:text-purple-400"><span class="text-lg">⚙️</span>Settings</button>
+    </nav>
+</div>
+
+<script>
+    // --- NAVIGATION LOGIC ---
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.getElementById(`tab-${tabId}`).classList.add('active');
+        if(tabId === 'bank') loadBanks();
+        if(tabId === 'orders') loadOrders();
+    }
+
+    // --- AUTHENTICATION LOGIC ---
+    supabase.auth.onAuthStateChange((event, session) => {
+        if (session) {
+            currentUser = session.user;
+            document.getElementById('auth-screen').classList.add('hidden');
+            document.getElementById('app-screen').classList.remove('hidden');
+            loadBanks();
+        } else {
+            currentUser = null;
+            document.getElementById('auth-screen').classList.remove('hidden');
+            document.getElementById('app-screen').classList.add('hidden');
+        }
+    });
+
+    async function handleSignup() {
+        const email = document.getElementById('auth-email').value;
+        const password = document.getElementById('auth-password').value;
+        const { error } = await supabase.auth.signUp({ email, password });
+        if (error) showAuthError(error.message);
+        else showAuthError("Registration successful. Please sign in.", "text-green-400");
+    }
+
+    async function handleLogin() {
+        const email = document.getElementById('auth-email').value;
+        const password = document.getElementById('auth-password').value;
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) showAuthError(error.message);
+    }
+
+    async function handleLogout() { await supabase.auth.signOut(); }
+
+    function showAuthError(msg, colorClass = "text-red-400") {
+        const el = document.getElementById('auth-error');
+        el.textContent = msg;
+        el.className = `text-sm text-center mt-4 ${colorClass}`;
+        el.classList.remove('hidden');
+    }
+
+    // --- DEPOSIT SYSTEM (CLIENT SIDE TRONSCAN) ---
+    async function startDeposit() {
+        if(activeDepositWallet) return alert("Deposit already in progress.");
+        
+        // 1. Fetch available wallet
+        const { data, error } = await supabase.from('pool_wallets')
+            .select('*').eq('status', 'Available').limit(1).single();
+            
+        if (error || !data) return alert("No wallets available right now. Please try again later.");
+        
+        activeDepositWallet = data.address;
+        const lockTime = new Date(new Date().getTime() + 30 * 60000).toISOString(); // 30 mins
+        const startTimeTs = new Date().getTime();
+
+        // 2. Lock wallet in DB
+        await supabase.from('pool_wallets')
+            .update({ status: 'Locked', locked_until: lockTime })
+            .eq('id', data.id);
+
+        // 3. Update UI
+        document.getElementById('btn-start-deposit').classList.add('hidden');
+        document.getElementById('deposit-ui').classList.remove('hidden');
+        document.getElementById('wallet-address').innerText = activeDepositWallet;
+        
+        document.getElementById('qrcode').innerHTML = "";
+        new QRCode(document.getElementById('qrcode'), { text: activeDepositWallet, width: 150, height: 150 });
+
+        // 4. Start Timers & Scanners
+        let timeLeft = 1800; // 30 minutes in seconds
+        depositTimer = setInterval(() => {
+            timeLeft--;
+            let m = Math.floor(timeLeft / 60);
+            let s = timeLeft % 60;
+            document.getElementById('deposit-timer').innerText = `${m}:${s < 10 ? '0' : ''}${s}`;
+            if (timeLeft <= 0) resetDeposit();
+        }, 1000);
+
+        trxScanner = setInterval(() => checkTronscan(activeDepositWallet, startTimeTs, data.id), 10000); // Check every 10s
+    }
+
+    async function checkTronscan(address, startTimestamp, dbWalletId) {
+        document.getElementById('deposit-status').innerText = "Scanning network...";
+        try {
+            const res = await fetch(`https://apilist.tronscanapi.com/api/token_trc20/transfers?limit=5&toAddress=${address}`);
+            const json = await res.json();
+            
+            if (json && json.token_transfers) {
+                for (let tx of json.token_transfers) {
+                    if (tx.tokenInfo.tokenAbbr === "USDT" && tx.block_ts > startTimestamp) {
+                        const amount = parseInt(tx.quant) / 1000000;
+                        await processSuccessDeposit(amount, tx.transaction_id, dbWalletId, address);
+                        return;
+                    }
+                }
+            }
+        } catch (e) { console.error("Tronscan error", e); }
+    }
+
+    async function processSuccessDeposit(amount, txid, dbWalletId, address) {
+        clearInterval(depositTimer);
+        clearInterval(trxScanner);
+        
+        // Write success to DB
+        await supabase.from('deposits').insert([{ user_id: currentUser.id, usdt_amount: amount, txid: txid }]);
+        await supabase.from('pool_wallets').update({ status: 'Available', locked_until: null }).eq('id', dbWalletId);
+        
+        document.getElementById('deposit-ui').innerHTML = `<h3 class='text-green-500 font-bold text-xl'>Payment Successful!</h3><p>Added ${amount} USDT</p>`;
+        activeDepositWallet = null;
+    }
+
+    function resetDeposit() {
+        clearInterval(depositTimer);
+        clearInterval(trxScanner);
+        supabase.from('pool_wallets').update({ status: 'Available', locked_until: null }).eq('address', activeDepositWallet);
+        alert("Deposit window expired.");
+        location.reload();
+    }
+
+    // --- SETTINGS (TX PIN) ---
+    async function setTxPin() {
+        const pin = document.getElementById('set-pin').value;
+        if(pin.length !== 6) return document.getElementById('pin-msg').innerText = "PIN must be 6 digits.";
+        
+        const { error } = await supabase.from('user_settings').upsert({ user_id: currentUser.id, tx_password: pin });
+        if(error) document.getElementById('pin-msg').innerText = "Error saving PIN.";
+        else document.getElementById('pin-msg').innerText = "PIN Saved successfully!", document.getElementById('pin-msg').className="text-green-400 mt-2";
+    }
+
+    // --- BANK ACCOUNTS ---
+    async function addBank() {
+        const details = {
+            user_id: currentUser.id,
+            holder_name: document.getElementById('bank-holder').value,
+            account_no: document.getElementById('bank-acc').value,
+            ifsc: document.getElementById('bank-ifsc').value,
+            bank_name: document.getElementById('bank-name').value
+        };
+        const { error } = await supabase.from('bank_accounts').insert([details]);
+        if(error) document.getElementById('bank-msg').innerText = error.message;
+        else {
+            document.getElementById('bank-msg').innerText = "Bank added!";
+            document.getElementById('bank-msg').className = "text-green-400 mt-2";
+            loadBanks();
+        }
+    }
+
+    async function loadBanks() {
+        const { data } = await supabase.from('bank_accounts').select('*');
+        const select = document.getElementById('withdraw-bank');
+        select.innerHTML = '<option value="">Select Saved Bank Account</option>';
+        data.forEach(bank => {
+            select.innerHTML += `<option value="${bank.bank_name} - ${bank.account_no}">${bank.bank_name} - ${bank.account_no}</option>`;
+        });
+    }
+
+    // --- WITHDRAWALS ---
+    function calculateINR() {
+        const usdt = document.getElementById('withdraw-amount').value;
+        document.getElementById('inr-amount').innerText = usdt ? (parseFloat(usdt) * 89.50).toFixed(2) : "0.00";
+    }
+
+    async function requestWithdrawal() {
+        const amount = document.getElementById('withdraw-amount').value;
+        const bank = document.getElementById('withdraw-bank').value;
+        const pin = document.getElementById('withdraw-pin').value;
+        const msg = document.getElementById('withdraw-msg');
+        msg.className = "text-sm text-center mt-4 text-red-400";
+
+        if(!amount || !bank || !pin) return msg.innerText = "Fill all fields";
+
+        // Verify PIN
+        const { data: userSettings } = await supabase.from('user_settings').select('*').eq('user_id', currentUser.id).single();
+        if(!userSettings || userSettings.tx_password !== pin) return msg.innerText = "Invalid Transaction PIN";
+
+        // Submit Withdrawal
+        const { error } = await supabase.from('withdrawals').insert([{ user_id: currentUser.id, usdt_amount: amount, bank_details: bank }]);
+        if(error) msg.innerText = error.message;
+        else {
+            msg.innerText = "Withdrawal request submitted!";
+            msg.className = "text-sm text-center mt-4 text-green-400";
+            document.getElementById('withdraw-amount').value = "";
+            document.getElementById('withdraw-pin').value = "";
+        }
+    }
+
+    // --- ORDERS ---
+    async function loadOrders() {
+        const list = document.getElementById('order-list');
+        list.innerHTML = "<p class='text-gray-400'>Loading...</p>";
+        
+        const [dep, wit] = await Promise.all([
+            supabase.from('deposits').select('*').order('created_at', { ascending: false }),
+            supabase.from('withdrawals').select('*').order('created_at', { ascending: false })
+        ]);
+
+        let html = "";
+        if(dep.data) dep.data.forEach(d => {
+            html += `<div class="bg-gray-800 p-4 rounded-lg flex justify-between border-l-4 border-green-500">
+                        <div><p class="font-bold">Deposit</p><p class="text-xs text-gray-400">${new Date(d.created_at).toLocaleString()}</p></div>
+                        <div class="text-right"><p class="text-green-400 font-bold">+${d.usdt_amount} USDT</p><p class="text-xs">${d.status}</p></div>
+                     </div>`;
+        });
+        if(wit.data) wit.data.forEach(w => {
+            html += `<div class="bg-gray-800 p-4 rounded-lg flex justify-between border-l-4 border-red-500">
+                        <div><p class="font-bold">Withdraw</p><p class="text-xs text-gray-400">${new Date(w.created_at).toLocaleString()}</p></div>
+                        <div class="text-right"><p class="text-red-400 font-bold">-${w.usdt_amount} USDT</p><p class="text-xs text-yellow-500">${w.status}</p></div>
+                     </div>`;
+        });
+        
+        list.innerHTML = html || "<p class='text-gray-400'>No transactions yet.</p>";
+    }
+</script>
+</body>
+</html>
