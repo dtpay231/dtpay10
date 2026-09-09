@@ -18,7 +18,7 @@
     // --- SUPABASE CONFIGURATION ---
     const SUPABASE_URL = 'https://vzzevmcyorysbnpovewo.supabase.co';
     const SUPABASE_ANON_KEY = 'sb_publishable_rkS5W73R3c5xP_74WO-SJg__jYq1mE3';
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     
     let currentUser = null;
     let activeDepositWallet = null;
@@ -138,7 +138,7 @@
     }
 
     // --- AUTHENTICATION LOGIC ---
-    supabase.auth.onAuthStateChange((event, session) => {
+    client.auth.onAuthStateChange((event, session) => {
         if (session) {
             currentUser = session.user;
             document.getElementById('auth-screen').classList.add('hidden');
@@ -154,7 +154,7 @@
     async function handleSignup() {
         const email = document.getElementById('auth-email').value;
         const password = document.getElementById('auth-password').value;
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await client.auth.signUp({ email, password });
         if (error) showAuthError(error.message);
         else showAuthError("Registration successful. Please sign in.", "text-green-400");
     }
@@ -162,11 +162,11 @@
     async function handleLogin() {
         const email = document.getElementById('auth-email').value;
         const password = document.getElementById('auth-password').value;
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await client.auth.signInWithPassword({ email, password });
         if (error) showAuthError(error.message);
     }
 
-    async function handleLogout() { await supabase.auth.signOut(); }
+    async function handleLogout() { await client.auth.signOut(); }
 
     function showAuthError(msg, colorClass = "text-red-400") {
         const el = document.getElementById('auth-error');
@@ -180,7 +180,7 @@
         if(activeDepositWallet) return alert("Deposit already in progress.");
         
         // 1. Fetch available wallet
-        const { data, error } = await supabase.from('pool_wallets')
+        const { data, error } = await client.from('pool_wallets')
             .select('*').eq('status', 'Available').limit(1).single();
             
         if (error || !data) return alert("No wallets available right now. Please try again later.");
@@ -190,7 +190,7 @@
         const startTimeTs = new Date().getTime();
 
         // 2. Lock wallet in DB
-        await supabase.from('pool_wallets')
+        await client.from('pool_wallets')
             .update({ status: 'Locked', locked_until: lockTime })
             .eq('id', data.id);
 
@@ -238,8 +238,8 @@
         clearInterval(trxScanner);
         
         // Write success to DB
-        await supabase.from('deposits').insert([{ user_id: currentUser.id, usdt_amount: amount, txid: txid }]);
-        await supabase.from('pool_wallets').update({ status: 'Available', locked_until: null }).eq('id', dbWalletId);
+        await client.from('deposits').insert([{ user_id: currentUser.id, usdt_amount: amount, txid: txid }]);
+        await client.from('pool_wallets').update({ status: 'Available', locked_until: null }).eq('id', dbWalletId);
         
         document.getElementById('deposit-ui').innerHTML = `<h3 class='text-green-500 font-bold text-xl'>Payment Successful!</h3><p>Added ${amount} USDT</p>`;
         activeDepositWallet = null;
@@ -248,7 +248,7 @@
     function resetDeposit() {
         clearInterval(depositTimer);
         clearInterval(trxScanner);
-        supabase.from('pool_wallets').update({ status: 'Available', locked_until: null }).eq('address', activeDepositWallet);
+        client.from('pool_wallets').update({ status: 'Available', locked_until: null }).eq('address', activeDepositWallet);
         alert("Deposit window expired.");
         location.reload();
     }
@@ -258,7 +258,7 @@
         const pin = document.getElementById('set-pin').value;
         if(pin.length !== 6) return document.getElementById('pin-msg').innerText = "PIN must be 6 digits.";
         
-        const { error } = await supabase.from('user_settings').upsert({ user_id: currentUser.id, tx_password: pin });
+        const { error } = await client.from('user_settings').upsert({ user_id: currentUser.id, tx_password: pin });
         if(error) document.getElementById('pin-msg').innerText = "Error saving PIN.";
         else document.getElementById('pin-msg').innerText = "PIN Saved successfully!", document.getElementById('pin-msg').className="text-green-400 mt-2";
     }
@@ -272,7 +272,7 @@
             ifsc: document.getElementById('bank-ifsc').value,
             bank_name: document.getElementById('bank-name').value
         };
-        const { error } = await supabase.from('bank_accounts').insert([details]);
+        const { error } = await client.from('bank_accounts').insert([details]);
         if(error) document.getElementById('bank-msg').innerText = error.message;
         else {
             document.getElementById('bank-msg').innerText = "Bank added!";
@@ -282,7 +282,7 @@
     }
 
     async function loadBanks() {
-        const { data } = await supabase.from('bank_accounts').select('*');
+        const { data } = await client.from('bank_accounts').select('*');
         const select = document.getElementById('withdraw-bank');
         select.innerHTML = '<option value="">Select Saved Bank Account</option>';
         data.forEach(bank => {
@@ -306,11 +306,11 @@
         if(!amount || !bank || !pin) return msg.innerText = "Fill all fields";
 
         // Verify PIN
-        const { data: userSettings } = await supabase.from('user_settings').select('*').eq('user_id', currentUser.id).single();
+        const { data: userSettings } = await client.from('user_settings').select('*').eq('user_id', currentUser.id).single();
         if(!userSettings || userSettings.tx_password !== pin) return msg.innerText = "Invalid Transaction PIN";
 
         // Submit Withdrawal
-        const { error } = await supabase.from('withdrawals').insert([{ user_id: currentUser.id, usdt_amount: amount, bank_details: bank }]);
+        const { error } = await client.from('withdrawals').insert([{ user_id: currentUser.id, usdt_amount: amount, bank_details: bank }]);
         if(error) msg.innerText = error.message;
         else {
             msg.innerText = "Withdrawal request submitted!";
@@ -326,8 +326,8 @@
         list.innerHTML = "<p class='text-gray-400'>Loading...</p>";
         
         const [dep, wit] = await Promise.all([
-            supabase.from('deposits').select('*').order('created_at', { ascending: false }),
-            supabase.from('withdrawals').select('*').order('created_at', { ascending: false })
+            client.from('deposits').select('*').order('created_at', { ascending: false }),
+            client.from('withdrawals').select('*').order('created_at', { ascending: false })
         ]);
 
         let html = "";
